@@ -9,7 +9,8 @@ import vm from 'node:vm'
  * window.__ModuleLoader__.load({ id, factory })。这里把那个壳子搭出来，
  * 用假 React 载入 factory，就能对纯逻辑（选会话的优先级）做单测。
  */
-function loadClient() {
+function loadClient(options) {
+  const opts = options || {}
   const file = join(import.meta.dirname, '..', 'client.js')
   const source = readFileSync(file, 'utf8')
 
@@ -25,6 +26,7 @@ function loadClient() {
     document: { querySelector: () => null, head: { appendChild() {} }, createElement: () => ({ setAttribute() {}, textContent: '' }) },
     console,
   }
+  if (opts.Audio) sandbox.window.Audio = opts.Audio
 
   vm.createContext(sandbox)
   vm.runInContext(source, sandbox, { filename: 'client.js' })
@@ -254,4 +256,55 @@ test('内置音效文件随包分发且是合法 wav', () => {
   assert.ok(data.length > 1024, '音频太小，可能是占位文件')
   assert.equal(data.subarray(0, 4).toString('ascii'), 'RIFF')
   assert.equal(data.subarray(8, 12).toString('ascii'), 'WAVE')
+})
+
+/** 记录 play/pause 次数的假 Audio，够用来观察解锁与播放行为。 */
+function fakeAudio() {
+  const calls = { play: 0, pause: 0, created: 0, instance: null }
+  function Audio(src) {
+    calls.created += 1
+    calls.src = src
+    calls.instance = this
+    this.volume = 1
+    this.currentTime = 0
+    this.preload = ''
+    this.play = () => {
+      calls.play += 1
+      return Promise.resolve()
+    }
+    this.pause = () => {
+      calls.pause += 1
+    }
+  }
+  return { Audio, calls }
+}
+
+test('playSound 复用同一个 audio，且按传入音量播放', () => {
+  const { Audio, calls } = fakeAudio()
+  const { exports } = loadClient({ Audio })
+  exports.playSound(0.3)
+  exports.playSound(0.5)
+  assert.equal(calls.created, 1, '每条提醒都新建 audio 会把解码器和声音叠在一起')
+  assert.equal(calls.play, 2)
+  assert.equal(calls.instance.volume, 0.5, '音量应跟着设置走')
+})
+
+test('playSound 对越界音量兜底为 0.8，而不是静音或爆音', () => {
+  const { Audio, calls } = fakeAudio()
+  const { exports } = loadClient({ Audio })
+  exports.playSound(undefined)
+  assert.equal(calls.instance.volume, 0.8)
+  exports.playSound(2)
+  assert.equal(calls.instance.volume, 0.8)
+  exports.playSound(-1)
+  assert.equal(calls.instance.volume, 0.8)
+})
+
+test('unlockSound 只静音试播一次，之后不再重复', () => {
+  const { Audio, calls } = fakeAudio()
+  const { exports } = loadClient({ Audio })
+  exports.unlockSound()
+  exports.unlockSound()
+  assert.equal(calls.play, 1, '解锁是幂等的，重复手势不该反复试播')
+  assert.equal(calls.created, 1)
 })

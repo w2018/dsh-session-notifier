@@ -159,19 +159,60 @@ window.__ModuleLoader__.load({
     // 换不成我们自己的，而且各平台行为不一致。
     const SOUND_URL = API + '/sound'
     let soundEl = null
+    let unlocked = false
 
     /** 复用同一个 <audio>：连续提醒不会叠加成一片噪音，也不会攒一堆解码器。 */
+    function ensureSoundEl() {
+      if (!soundEl) {
+        soundEl = new window.Audio(SOUND_URL)
+        soundEl.preload = 'auto'
+      }
+      return soundEl
+    }
+
+    /**
+     * 浏览器默认禁止无手势的自动播放。提醒往往是在用户没碰页面时触发的，
+     * 首次 play() 会被拒（NotAllowedError），于是「第一次提醒没声音」。
+     * 所以在第一次真实手势里静音播一下再暂停，把这个元素解锁；
+     * 之后哪怕页面在后台，也能照常出声。
+     */
+    function unlockSound() {
+      if (unlocked || typeof window === 'undefined' || typeof window.Audio !== 'function') return
+      unlocked = true
+      try {
+        const el = ensureSoundEl()
+        const prev = el.volume
+        el.volume = 0
+        const played = el.play()
+        const settle = () => {
+          try {
+            el.pause()
+            el.currentTime = 0
+          } catch {
+            /* 忽略 */
+          }
+          el.volume = prev
+        }
+        if (played && typeof played.then === 'function') played.then(settle, () => { unlocked = false })
+        else settle()
+      } catch {
+        unlocked = false
+      }
+    }
+
     function playSound(volume) {
       try {
         if (typeof window === 'undefined' || typeof window.Audio !== 'function') return
-        if (!soundEl) {
-          soundEl = new window.Audio(SOUND_URL)
-          soundEl.preload = 'auto'
+        const el = ensureSoundEl()
+        el.volume = typeof volume === 'number' && volume >= 0 && volume <= 1 ? volume : 0.8
+        el.currentTime = 0
+        const played = el.play()
+        if (played && typeof played.catch === 'function') {
+          // 被自动播放策略拦下：等用户下次动一下页面再解锁。
+          played.catch(() => {
+            unlocked = false
+          })
         }
-        soundEl.volume = typeof volume === 'number' && volume >= 0 && volume <= 1 ? volume : 0.8
-        soundEl.currentTime = 0
-        const played = soundEl.play()
-        if (played && typeof played.catch === 'function') played.catch(() => {})
       } catch {
         /* 音频不可用就算了，声音是锦上添花 */
       }
@@ -488,7 +529,14 @@ window.__ModuleLoader__.load({
       }
 
       const onFocus = () => badge.reset()
-      if (typeof window !== 'undefined') window.addEventListener('focus', onFocus)
+      const onGesture = () => unlockSound()
+      if (typeof window !== 'undefined') {
+        window.addEventListener('focus', onFocus)
+        // 捕获阶段挂一次性的手势监听：用户在页面里点一下/敲一下就把音频解锁，
+        // 之后后台来的提醒才响得出来。
+        window.addEventListener('pointerdown', onGesture, { capture: true, passive: true })
+        window.addEventListener('keydown', onGesture, { capture: true, passive: true })
+      }
 
       pull()
       timer = setInterval(pull, POLL_MS)
@@ -499,7 +547,11 @@ window.__ModuleLoader__.load({
           () => () => {
             stopped = true
             if (timer) clearInterval(timer)
-            if (typeof window !== 'undefined') window.removeEventListener('focus', onFocus)
+            if (typeof window !== 'undefined') {
+              window.removeEventListener('focus', onFocus)
+              window.removeEventListener('pointerdown', onGesture, { capture: true })
+              window.removeEventListener('keydown', onGesture, { capture: true })
+            }
           },
           'session-notifier: poller',
         )
@@ -887,6 +939,7 @@ window.__ModuleLoader__.load({
     exports.wantsSystem = wantsSystem
     exports.SOUND_URL = SOUND_URL
     exports.playSound = playSound
+    exports.unlockSound = unlockSound
     return module.exports
   },
 })
