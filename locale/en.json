@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Notifier (dsh-session-notifier)",
+    "description": "Reminds you with system notifications and in-page toasts when a session turn finishes, an approval is waiting, or the agent asks you a question. Per-node switches, quiet hours, foreground policy and unread title badge."
+  }
+}

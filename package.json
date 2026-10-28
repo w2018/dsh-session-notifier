@@ -1,0 +1,68 @@
+{
+  "name": "dsh-session-notifier",
+  "version": "0.1.0",
+  "description": "DeepSeek-Harness plugin: watch session lifecycle events (turn finished, approval waiting, user question, sign-in required, errors, subagent end) and remind the user through system notifications plus an in-page toast fallback. · DSH 插件：监听会话生命周期事件（任务完成、等待授权、弹窗提问、需要登录、报错、子任务结束），用系统通知提醒，并以页内提示条兜底。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "dsh": ">=0.1.7-rc.2",
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "notification",
+    "notify",
+    "session",
+    "reminder",
+    "approval"
+  ],
+  "license": "MIT",
+  "icon": "icon.svg",
+  "author": "w2018",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/w2018/dsh-session-notifier.git"
+  },
+  "homepage": "https://github.com/w2018/dsh-session-notifier#readme",
+  "bugs": {
+    "url": "https://github.com/w2018/dsh-session-notifier/issues"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  }
+}

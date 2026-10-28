@@ -1,0 +1,36 @@
+# 组合包（bundle）patch 层：profile 的 dsh.profile.bundles 列出本包时，往插件树里插一行。
+# 行 id 用于覆盖/禁用，与包名无关；name 必须是包名，Node 才解析得到代码。
+#
+# 这里的 config 只是「首次安装的初始值」。设置页保存的覆盖写在
+# $DSH_HOME/storages/session-notifier/settings.json，保存即生效，不需要重启 DSH。
+- insert:
+    - id: session-notifier
+      name: "dsh-session-notifier"
+      config:
+        # 总开关：关掉后 Host 侧不再入队，Client 也不再弹任何提醒。
+        enabled: true
+
+        # 各类提醒节点。用户要求：默认除「子任务」外全部开启。
+        nodes:
+          turnComplete: true   # 一轮任务完成（agent 从 running 回到 idle）
+          approval: true       # 等待授权（工具要写文件/跑命令等你点允许）
+          question: true       # 弹窗提问（ask_user_question）
+          auth: true           # 需要登录 / 账号授权过期
+          error: true          # 任务出错
+          subagent: false      # 子任务 / workflow 子 agent 结束（可能比较吵，默认关）
+
+        # 前台行为：smart = 窗口在前台只走页内提示，后台才弹系统通知
+        foreground: smart      # smart | always | never
+
+        sound: true             # 页内提示音
+        toastSeconds: 8         # 页内提示条停留秒数
+        titleBadge: true        # 标题栏未读计数
+
+        # 免打扰时段（本地时间，跨零点写法如 23:00 → 08:00）
+        quietHours:
+          enabled: false
+          start: "23:00"
+          end: "08:00"
+
+        # 同一 (类别 + 会话) 在这个窗口内只提醒一次，防抖
+        dedupeMs: 3000

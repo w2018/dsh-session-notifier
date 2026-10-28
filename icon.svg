@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="session notifier">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#1c1e24"/>
+  <path d="M32 14a10 10 0 0 0-10 10v8l-3 5h26l-3-5v-8a10 10 0 0 0-10-10z" fill="#f2f3f5"/>
+  <path d="M27 41a5 5 0 0 0 10 0z" fill="#f2f3f5"/>
+  <circle cx="46" cy="18" r="7" fill="#ffb43c"/>
+  <path d="M46 14.4v4.2l2.6 1.8" stroke="#1c1e24" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+</svg>

@@ -1,0 +1,8 @@
+node_modules/
+tmp/
+*.log
+.DS_Store
+Thumbs.db
+*.tmp
+# 出包产物：随 Release 附件分发，不进版本控制
+*.tgz
