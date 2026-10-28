@@ -154,6 +154,31 @@ test('POST /clear 清空队列', async () => {
   }
 })
 
+test('GET /sound 回包内提示音，且带缓存头', async () => {
+  const s = setup()
+  try {
+    const out = await call(s.handler, 'GET', '/api/session-notifier/sound')
+    assert.equal(out.status, 200)
+    assert.equal(out.res.headers['content-type'], 'audio/wav')
+    assert.ok(out.res.headers['cache-control'].includes('max-age'), '缺缓存头会让浏览器每次重下 100KB')
+    assert.equal(out.res.body.slice(0, 4), 'RIFF')
+  } finally {
+    s.done()
+  }
+})
+
+test('HEAD /sound 只回头不回体', async () => {
+  const s = setup()
+  try {
+    const out = await call(s.handler, 'HEAD', '/api/session-notifier/sound')
+    assert.equal(out.status, 200)
+    assert.equal(out.res.body, '')
+    assert.ok(Number(out.res.headers['content-length']) > 1024)
+  } finally {
+    s.done()
+  }
+})
+
 test('未知端点 404，方法不匹配也 404', async () => {
   const s = setup()
   try {

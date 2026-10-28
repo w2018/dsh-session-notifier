@@ -164,7 +164,7 @@ test('测试提醒没有会话 id 时不打开任何会话', () => {
   assert.deepEqual(opened, [])
 })
 
-// ── planDelivery：三种前台策略必须互斥，不能叠加 ──────────────────────
+// ── planDelivery：三种前台策略互斥，且只有系统通知才发声 ──────────────
 
 /**
  * planDelivery 的结果对象是在 vm 沙箱里创建的字面量，原型与宿主 realm 不同，
@@ -172,43 +172,57 @@ test('测试提醒没有会话 id 时不打开任何会话', () => {
  */
 function same(actual, expected) {
   assert.equal(actual.toast, expected.toast, 'toast 不一致：' + JSON.stringify(actual))
-  assert.equal(actual.beep, expected.beep, 'beep 不一致：' + JSON.stringify(actual))
+  assert.equal(actual.sound, expected.sound, 'sound 不一致：' + JSON.stringify(actual))
 }
 
-test('always + 系统通知发出去了 → 不再弹页内条、不再响铃', () => {
+test('always + 系统通知发出去了 → 不弹页内条，但响音效', () => {
   const { exports } = loadClient()
   // 前台、后台都一样：always 就是「只走系统通知」。
-  same(exports.planDelivery('always', false, true), { toast: false, beep: false })
-  same(exports.planDelivery('always', true, true), { toast: false, beep: false })
+  same(exports.planDelivery('always', false, true), { toast: false, sound: true })
+  same(exports.planDelivery('always', true, true), { toast: false, sound: true })
 })
 
-test('always 但系统通知发不出去 → 退回页内条兜底', () => {
+test('always 但系统通知发不出去 → 退回页内条，且不发声', () => {
   const { exports } = loadClient()
-  same(exports.planDelivery('always', false, false), { toast: true, beep: true })
+  same(exports.planDelivery('always', false, false), { toast: true, sound: false })
 })
 
 test('smart 只在后台且系统通知成功时才让位', () => {
   const { exports } = loadClient()
-  same(exports.planDelivery('smart', true, true), { toast: false, beep: false })
-  // 前台不发系统通知 → 弹页内条
-  same(exports.planDelivery('smart', false, false), { toast: true, beep: true })
-  // 后台但权限没给 → 页内条兜底
-  same(exports.planDelivery('smart', true, false), { toast: true, beep: true })
+  same(exports.planDelivery('smart', true, true), { toast: false, sound: true })
+  // 前台不发系统通知 → 弹页内条，不发声
+  same(exports.planDelivery('smart', false, false), { toast: true, sound: false })
+  // 后台但权限没给 → 页内条兜底，不发声
+  same(exports.planDelivery('smart', true, false), { toast: true, sound: false })
 })
 
-test('never 永远只弹页内条', () => {
+test('never 永远只弹页内条、永远不发声', () => {
   const { exports } = loadClient()
-  same(exports.planDelivery('never', false, false), { toast: true, beep: true })
-  same(exports.planDelivery('never', true, true), { toast: true, beep: true })
+  same(exports.planDelivery('never', false, false), { toast: true, sound: false })
+  // never 根本不会去发系统通知，systemShown 恒为 false。
+  same(exports.planDelivery('never', true, false), { toast: true, sound: false })
 })
 
 test('foreground 取值缺失时按 smart 处理', () => {
   const { exports } = loadClient()
-  same(exports.planDelivery(undefined, true, true), { toast: false, beep: false })
-  same(exports.planDelivery(undefined, false, false), { toast: true, beep: true })
+  same(exports.planDelivery(undefined, true, true), { toast: false, sound: true })
+  same(exports.planDelivery(undefined, false, false), { toast: true, sound: false })
   // 脏配置（比如手改 settings.json 写错）也当 smart，别把提醒吃掉。
-  same(exports.planDelivery('ALWAYS!', true, true), { toast: false, beep: false })
-  same(exports.planDelivery('ALWAYS!', false, false), { toast: true, beep: true })
+  same(exports.planDelivery('ALWAYS!', true, true), { toast: false, sound: true })
+  same(exports.planDelivery('ALWAYS!', false, false), { toast: true, sound: false })
+})
+
+test('页内提示条一律不发声（用户要求：只有系统通知才响）', () => {
+  const { exports } = loadClient()
+  for (const mode of ['smart', 'always', 'never']) {
+    for (const bg of [true, false]) {
+      for (const shown of [true, false]) {
+        const plan = exports.planDelivery(mode, bg, shown)
+        if (plan.toast) assert.equal(plan.sound, false, mode + '/' + bg + '/' + shown + ' 弹了页内条却要发声')
+        if (plan.sound) assert.equal(plan.toast, false, mode + '/' + bg + '/' + shown + ' 发声时应只走系统通知')
+      }
+    }
+  }
 })
 
 test('wantsSystem 与 planDelivery 口径一致', () => {
@@ -225,4 +239,19 @@ test('wantsSystem 与 planDelivery 口径一致', () => {
       assert.equal(exports.planDelivery(mode, bg, wants).toast, !wants)
     }
   }
+})
+
+// ── 音效资源 ─────────────────────────────────────────────────────────
+
+test('提示音走 /sound 端点，不是外部 URL', () => {
+  const { exports } = loadClient()
+  assert.equal(exports.SOUND_URL, '/api/session-notifier/sound')
+})
+
+test('内置音效文件随包分发且是合法 wav', () => {
+  const file = join(import.meta.dirname, '..', 'assets', 'mambo.wav')
+  const data = readFileSync(file)
+  assert.ok(data.length > 1024, '音频太小，可能是占位文件')
+  assert.equal(data.subarray(0, 4).toString('ascii'), 'RIFF')
+  assert.equal(data.subarray(8, 12).toString('ascii'), 'WAVE')
 })

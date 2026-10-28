@@ -90,6 +90,8 @@ window.__ModuleLoader__.load({
         '.sn-input, .sn-select { height: 30px; padding: 0 8px; box-sizing: border-box; border-radius: 8px; font: inherit; font-size: 12.5px; color: inherit; background: rgba(127,127,127,0.06); border: 1px solid rgba(127,127,127,0.28); }',
         '.sn-input:focus, .sn-select:focus { outline: none; border-color: rgba(127,127,127,0.55); }',
         '.sn-input[type="time"] { width: 108px; }',
+        '.sn-range { width: 190px; accent-color: #4084ff; cursor: pointer; }',
+        '.sn-range:disabled { opacity: .45; cursor: default; }',
         '.sn-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
         '.sn-btn { height: 28px; padding: 0 12px; border-radius: 8px; font-size: 12.5px; cursor: pointer; border: 1px solid rgba(127,127,127,0.4); background: transparent; color: inherit; }',
         '.sn-btn:hover:not(:disabled) { background: rgba(127,127,127,0.1); }',
@@ -151,26 +153,25 @@ window.__ModuleLoader__.load({
       return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end
     }
 
-    // ── 提示音（不依赖外部音频资源）────────────────────────────────
-    let audioCtx = null
-    function beep() {
+    // ── 提示音 ──────────────────────────────────────────────────────
+    // 用包内 assets/mambo.wav（Host 通过 /sound 端点回二进制）。不用
+    // Notification 自带的 silent:false 音效：那是浏览器/系统的默认提示音，
+    // 换不成我们自己的，而且各平台行为不一致。
+    const SOUND_URL = API + '/sound'
+    let soundEl = null
+
+    /** 复用同一个 <audio>：连续提醒不会叠加成一片噪音，也不会攒一堆解码器。 */
+    function playSound(volume) {
       try {
-        const Ctor = window.AudioContext || window.webkitAudioContext
-        if (!Ctor) return
-        if (!audioCtx) audioCtx = new Ctor()
-        if (audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume()
-        const osc = audioCtx.createOscillator()
-        const gain = audioCtx.createGain()
-        osc.type = 'sine'
-        osc.frequency.value = 880
-        gain.gain.value = 0.06
-        osc.connect(gain)
-        gain.connect(audioCtx.destination)
-        const t0 = audioCtx.currentTime
-        gain.gain.setValueAtTime(0.06, t0)
-        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22)
-        osc.start(t0)
-        osc.stop(t0 + 0.24)
+        if (typeof window === 'undefined' || typeof window.Audio !== 'function') return
+        if (!soundEl) {
+          soundEl = new window.Audio(SOUND_URL)
+          soundEl.preload = 'auto'
+        }
+        soundEl.volume = typeof volume === 'number' && volume >= 0 && volume <= 1 ? volume : 0.8
+        soundEl.currentTime = 0
+        const played = soundEl.play()
+        if (played && typeof played.catch === 'function') played.catch(() => {})
       } catch {
         /* 音频不可用就算了，声音是锦上添花 */
       }
@@ -182,6 +183,14 @@ window.__ModuleLoader__.load({
       return window.Notification.permission // granted | denied | default
     }
 
+    /**
+     * @param {object} notice 队列里的一条提醒
+     * @param {Function} onClick 点击后回到会话
+     *
+     * 系统通知一律 silent: true，音效完全由插件自己放 mambo.wav。
+     * 不这么做就会响两声：一声系统的默认音、一声我们的；而且系统的那个
+     * 换不掉、各平台行为还不一致，「关掉音效」这个开关也就名不副实了。
+     */
     function showSystemNotification(notice, onClick) {
       if (notificationState() !== 'granted') return false
       try {
@@ -193,7 +202,7 @@ window.__ModuleLoader__.load({
           body,
           tag: 'dsh-session-notifier-' + notice.kind + '-' + (notice.sessionId || 'global'),
           renotify: true,
-          silent: false,
+          silent: true,
         })
         // 点击后的落点交给 activateNotice（选中该会话）；这里不再自己 focus，
         // 否则会和它重复，且容易让人以为 focus 就是「回来」的全部。
@@ -388,18 +397,18 @@ window.__ModuleLoader__.load({
     /**
      * 一次提醒到底走哪几路。纯函数，单测直接覆盖。
      *
-     * 三种前台策略的语义必须是「二选一，不是叠加」：
-     * - always：只要系统通知发得出去，就只弹系统通知；页内提示条和自带提示音都让给
-     *   系统，否则用户会同时看到系统通知和页内条，等于被提醒两遍。
-     * - smart：窗口在后台才走系统通知，前台时安静地只弹页内提示条。
-     * - never：只弹页内提示条。
+     * 判断只依赖一个事实：系统通知到底发出去没有（systemShown）。
+     * 「该不该走系统通知」是 wantsSystem 的事，在调用方那一步就定好了，
+     * 这里再判一次只会让两处条件各自漂移。
      *
-     * 唯一的例外是「想发系统通知但发不出去」（权限被拒、浏览器不支持）：
-     * 这时静默等于漏掉提醒，所以退回页内提示条兜住。
+     * - 发出去了 → 只算系统通知这一路：不弹页内条（否则等于提醒两遍），并响音效。
+     * - 没发出去 → 退回页内提示条兜底；页内条就摆在眼前，不发声。
+     *
+     * 音效只跟系统通知走是用户拍板的规矩：应用内通知不播放音效。
      */
     function planDelivery(mode, background, systemShown) {
-      if (wantsSystem(mode, background) && systemShown) return { toast: false, beep: false }
-      return { toast: true, beep: true }
+      if (systemShown === true) return { toast: false, sound: true }
+      return { toast: true, sound: false }
     }
 
     // ── 轮询 + 展示决策 ─────────────────────────────────────────────
@@ -444,13 +453,15 @@ window.__ModuleLoader__.load({
           (document.hidden === true || (typeof document.hasFocus === 'function' && !document.hasFocus()))
 
         const mode = cfg.foreground || 'smart'
-        const wantSystem = wantsSystem(mode, background)
 
         let shownSystem = false
-        if (wantSystem) shownSystem = showSystemNotification(notice, () => activateNotice(notice))
+        if (wantsSystem(mode, background)) {
+          shownSystem = showSystemNotification(notice, () => activateNotice(notice))
+        }
 
         const plan = planDelivery(mode, background, shownSystem)
-        if (plan.beep && cfg.sound) beep()
+        // 声音只跟系统通知走：页内提示条不发声（用户拍板）。
+        if (plan.sound && cfg.sound !== false) playSound(cfg.soundVolume)
         if (plan.toast) {
           emitToast({
             kind: notice.kind,
@@ -715,7 +726,33 @@ window.__ModuleLoader__.load({
               checked: draft.sound !== false,
               onChange: (e) => patch({ sound: e.target.checked }),
             }),
-            '弹提示时响一声',
+            '弹系统通知时播放音效',
+          ),
+          h(
+            'div',
+            { className: 'sn-row' },
+            h('span', { className: 'sn-label' }, '音量'),
+            h('input', {
+              className: 'sn-range',
+              type: 'range',
+              min: 0,
+              max: 1,
+              step: 0.05,
+              value: draft.soundVolume === undefined ? 0.8 : draft.soundVolume,
+              disabled: draft.sound === false,
+              onChange: (e) => patch({ soundVolume: Number(e.target.value) }),
+            }),
+            h('div', { className: 'sn-hint' }, '音效为内置「曼波」；页内提示条不发声。'),
+          ),
+          h(
+            'div',
+            { className: 'sn-inline' },
+            h(
+              'button',
+              { className: 'sn-btn', type: 'button', onClick: () => playSound(draft.soundVolume) },
+              '试听',
+            ),
+            h('span', { className: 'sn-hint' }, '只在这个设置页播放，不影响提醒。'),
           ),
           h(
             'label',
@@ -848,6 +885,8 @@ window.__ModuleLoader__.load({
     exports.returnToApp = returnToApp
     exports.planDelivery = planDelivery
     exports.wantsSystem = wantsSystem
+    exports.SOUND_URL = SOUND_URL
+    exports.playSound = playSound
     return module.exports
   },
 })

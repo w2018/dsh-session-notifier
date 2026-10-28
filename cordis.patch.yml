@@ -22,7 +22,8 @@
         # 前台行为：smart = 窗口在前台只走页内提示，后台才弹系统通知
         foreground: smart      # smart | always | never
 
-        sound: true             # 页内提示音
+        sound: true             # 提示音总开关（只随系统通知播放）
+        soundVolume: 0.8        # 提示音音量 0–1
         toastSeconds: 8         # 页内提示条停留秒数
         titleBadge: true        # 标题栏未读计数
 
